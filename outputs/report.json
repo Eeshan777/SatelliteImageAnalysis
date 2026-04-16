@@ -12,5 +12,19 @@
         "domain": "Satellite Image",
         "confidence": 0.9034097194671631,
         "timestamp": "2026-04-16 23:31:54.893556"
+    },
+    {
+        "file": "C:/Users/Client/Desktop/images.jpeg",
+        "label": "Forest",
+        "domain": "Satellite Image",
+        "confidence": 0.9034097194671631,
+        "timestamp": "2026-04-17 01:02:38.812583"
+    },
+    {
+        "file": "C:/Users/Client/Desktop/ChatGPT Image Apr 16, 2026, 10_42_19 PM.png",
+        "label": "Forest",
+        "domain": "Satellite Image",
+        "confidence": 0.6575812101364136,
+        "timestamp": "2026-04-17 01:02:45.078207"
     }
 ]
