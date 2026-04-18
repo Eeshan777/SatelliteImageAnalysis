@@ -2,133 +2,133 @@ import os
 import tkinter as tk
 from tkinter import filedialog, ttk
 from PIL import Image, ImageTk, ImageOps
-
-# Suppress TensorFlow logging to keep terminal clean
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
 from Analyzer import analyze
 
 class SatIntelTerminal:
     def __init__(self, root):
         self.root = root
         self.root.title("SatIntel Pro - Intelligence Dashboard")
-        self.root.geometry("1550x950")
+        self.root.state('zoomed') 
         self.root.configure(bg="#1c1c1c") 
         self.results_cache = {} 
         self.setup_ui()
 
     def setup_ui(self):
-        # Header Section
-        header = tk.Frame(self.root, bg="#00a8ff", pady=12)
+        # 1. Header
+        header = tk.Frame(self.root, bg="#00a8ff", height=50)
         header.pack(fill="x")
-        tk.Label(header, text="SATELLITE MULTI-CLASS ANALYSIS TERMINAL", 
-                 font=("Arial", 20, "bold"), fg="white", bg="#00a8ff").pack()
+        tk.Label(header, text="SATELLITE ANALYSIS TERMINAL", 
+                 font=("Arial", 16, "bold"), fg="white", bg="#00a8ff").pack(pady=10)
 
-        # Adjustable Paned Window
-        self.paned = tk.PanedWindow(self.root, orient="horizontal", bg="#1c1c1c", sashwidth=6)
+        # 2. Main Layout
+        self.paned = tk.PanedWindow(self.root, orient="horizontal", bg="#1c1c1c", sashwidth=4)
         self.paned.pack(expand=True, fill="both")
 
-        # --- LEFT PANEL: Narrow Gallery Grid ---
-        self.left_panel = tk.Frame(self.paned, bg="#252525", width=450)
+        # Sidebar (2 Columns)
+        self.left_panel = tk.Frame(self.paned, bg="#252525", width=260) 
         self.paned.add(self.left_panel)
         
-        tk.Label(self.left_panel, text="SCANNED IMAGE GRID", fg="#7f8c8d", bg="#252525", font=("Arial", 9, "bold")).pack(pady=10)
+        tk.Label(self.left_panel, text="UPLOADED IMAGES", font=("Arial", 8, "bold"), 
+                 fg="#7f8c8d", bg="#252525", pady=10).pack()
         
         self.canvas = tk.Canvas(self.left_panel, bg="#252525", highlightthickness=0)
-        self.scroll_y = ttk.Scrollbar(self.left_panel, orient="vertical", command=self.canvas.yview)
         self.grid_container = tk.Frame(self.canvas, bg="#252525")
-        
         self.canvas.create_window((0, 0), window=self.grid_container, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scroll_y.set)
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.scroll_y.pack(side="right", fill="y")
-        self.grid_container.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
-        # --- RIGHT PANEL: Wide Intelligence Workspace ---
-        self.right_panel = tk.Frame(self.paned, bg="#1c1c1c", padx=30)
+        # Main Workspace
+        self.right_panel = tk.Frame(self.paned, bg="#1c1c1c")
         self.paned.add(self.right_panel)
 
-        self.res_title = tk.Label(self.right_panel, text="ANALYSIS: STANDBY", font=("Arial", 22, "bold"), fg="#00a8ff", bg="#1c1c1c")
-        self.res_title.pack(pady=25)
+        self.res_title = tk.Label(self.right_panel, text="STATUS: STANDBY", 
+                                  font=("Arial", 20, "bold"), fg="#00a8ff", bg="#1c1c1c")
+        self.res_title.pack(pady=15)
 
-        # Large Comparison View
-        self.img_container = tk.Frame(self.right_panel, bg="#1c1c1c")
-        self.img_container.pack(fill="x", pady=10)
+        # 3. Triple Image View (Equal Spacing)
+        self.img_box = tk.Frame(self.right_panel, bg="#1c1c1c")
+        self.img_box.pack(fill="both", expand=True, padx=20)
         
-        self.orig_view = tk.Label(self.img_container, bg="#252525", bd=2, relief="flat", text="ORIGINAL", fg="#7f8c8d")
-        self.orig_view.pack(side="left", expand=True, padx=15)
-        
-        self.seg_view = tk.Label(self.img_container, bg="#252525", bd=2, relief="flat", text="SEGMENTED", fg="#7f8c8d")
-        self.seg_view.pack(side="left", expand=True, padx=15)
+        for i in range(3): self.img_box.columnconfigure(i, weight=1)
+        self.img_box.rowconfigure(0, weight=1)
 
-        # Environmental Feature Table
-        tk.Label(self.right_panel, text="DETAILED ENVIRONMENTAL ANALYSIS", 
-                 fg="#7f8c8d", bg="#1c1c1c", font=("Arial", 10, "bold")).pack(anchor="w", pady=(20, 5))
+        self.orig_view = tk.Label(self.img_box, bg="#252525")
+        self.orig_view.grid(row=0, column=0, sticky="nsew", padx=8)
         
+        self.recon_view = tk.Label(self.img_box, bg="#252525")
+        self.recon_view.grid(row=0, column=1, sticky="nsew", padx=8)
+        
+        self.seg_view = tk.Label(self.img_box, bg="#252525")
+        self.seg_view.grid(row=0, column=2, sticky="nsew", padx=8)
+
+        # 4. Data Table & Button
+        self.bottom_frame = tk.Frame(self.right_panel, bg="#1c1c1c")
+        self.bottom_frame.pack(fill="x", side="bottom", padx=30, pady=20)
+
         style = ttk.Style()
-        style.theme_use('clam') # Required to customize headers correctly
-        style.configure("Treeview", rowheight=30, font=("Arial", 11), background="#252525", foreground="white", fieldbackground="#252525")
-        style.configure("Treeview.Heading", font=("Arial", 11, "bold"), background="#333333", foreground="white")
-
-        self.tree = ttk.Treeview(self.right_panel, columns=("Feature", "Coverage"), show="headings", height=8)
-        self.tree.heading("Feature", text="ENVIRONMENTAL FEATURE")
-        self.tree.heading("Coverage", text="COVERAGE ANALYSIS (%)")
-        self.tree.column("Feature", width=350)
-        self.tree.column("Coverage", width=200)
+        style.theme_use('clam')
+        style.configure("Treeview", background="#252525", foreground="white", fieldbackground="#252525")
+        
+        self.tree = ttk.Treeview(self.bottom_frame, columns=("F", "C"), show="headings", height=5)
+        self.tree.heading("F", text="ENVIRONMENTAL FEATURE"); self.tree.heading("C", text="COVERAGE %")
+        self.tree.column("F", width=350); self.tree.column("C", width=120)
         self.tree.pack(fill="x")
 
-        # Command Button
-        btn_frame = tk.Frame(self.right_panel, bg="#1c1c1c")
-        btn_frame.pack(fill="x", pady=30)
-        ttk.Button(btn_frame, text="IMPORT NEW DATASET", command=self.load_batch).pack(side="right")
+        ttk.Button(self.bottom_frame, text="IMPORT DATASET", command=self.load_batch).pack(side="right")
 
     def load_batch(self):
         paths = filedialog.askopenfilenames()
         if not paths: return
-        
         for widget in self.grid_container.winfo_children(): widget.destroy()
-
+        
         col, row = 0, 0
-        for path in paths:
+        for index, path in enumerate(paths):
             data = analyze(path)
             self.results_cache[path] = data
             
-            tile = tk.Frame(self.grid_container, bg="#252525", padx=5, pady=5)
-            tile.grid(row=row, column=col, padx=8, pady=8)
+            tile = tk.Frame(self.grid_container, bg="#252525", pady=5)
+            tile.grid(row=row, column=col, padx=10, pady=8)
             
-            img = ImageOps.fit(Image.open(path), (160, 160))
+            # FIT to square for consistent sidebar
+            img = ImageOps.fit(Image.open(path), (100, 100), Image.Resampling.LANCZOS)
             tk_img = ImageTk.PhotoImage(img)
             
-            btn = tk.Button(tile, image=tk_img, bg="#252525", activebackground="#00a8ff",
-                            command=lambda p=path: self.display_data(p), borderwidth=0)
+            btn = tk.Button(tile, image=tk_img, bg="#252525", bd=0, command=lambda p=path: self.display_data(p))
             btn.image = tk_img
             btn.pack()
             
-            tk.Label(tile, text=data['label'], fg="#00a8ff", bg="#252525", font=("Arial", 8)).pack()
+            tk.Label(tile, text=f"IMAGE {index}", font=("Arial", 7, "bold"), fg="#00a8ff", bg="#252525").pack()
             
             col += 1
-            if col > 1: # 2 Columns keeps the left panel narrow
-                col = 0
-                row += 1
+            if col > 1: col = 0; row += 1
 
     def display_data(self, path):
-        data = self.results_cache[path]
-        self.res_title.config(text=f"CLASSIFICATION: {data['label'].upper()}")
+        data = self.results_cache.get(path)
+        if not data: return
+        self.res_title.config(text=f"DETECTED: {data['label'].upper()}", fg="#2ecc71")
         
-        display_size = (380, 380)
-        o_img = ImageTk.PhotoImage(ImageOps.fit(Image.open(path), display_size))
-        s_img = ImageTk.PhotoImage(ImageOps.fit(Image.open(data['seg_path']), display_size))
+        self.root.update_idletasks()
         
-        self.orig_view.config(image=o_img); self.orig_view.image = o_img
-        self.seg_view.config(image=s_img); self.seg_view.image = s_img
+        # Calculate target based on the gray boxes
+        target_w = self.orig_view.winfo_width()
+        target_h = self.orig_view.winfo_height()
+
+        image_streams = [
+            (path, self.orig_view),
+            (data.get('recon_path'), self.recon_view),
+            (data.get('seg_path'), self.seg_view)
+        ]
+
+        for img_path, widget in image_streams:
+            if img_path and os.path.exists(img_path):
+                # Use FIT with centering to ensure the images fill the boxes correctly
+                img = ImageOps.fit(Image.open(img_path), (target_w, target_h), Image.Resampling.LANCZOS)
+                tk_img = ImageTk.PhotoImage(img)
+                widget.config(image=tk_img)
+                widget.image = tk_img
 
         for i in self.tree.get_children(): self.tree.delete(i)
-        for line in data['report']:
-            if ":" in line:
-                self.tree.insert("", "end", values=line.split(": "))
+        for line in data.get('report', []):
+            if ":" in line: self.tree.insert("", "end", values=line.split(": "))
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = SatIntelTerminal(root)
-    root.mainloop()
+    root = tk.Tk(); app = SatIntelTerminal(root); root.mainloop()
