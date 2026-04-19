@@ -1,3 +1,4 @@
 *.zip filter=lfs diff=lfs merge=lfs -text
-models/vgg16_model.h5 filter=lfs diff=lfs merge=lfs -text
+models/vgg16_model.keras filter=lfs diff=lfs merge=lfs -text
+models/autoencoder_model.keras filter=lfs diff=lfs merge=lfs -text
 *.keras filter=lfs diff=lfs merge=lfs -text
