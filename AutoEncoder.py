@@ -1,36 +1,45 @@
-import os
 import tensorflow as tf
 from tensorflow.keras import layers, models
-from tensorflow.keras.preprocessing import image_dataset_from_directory
+import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(BASE_DIR, "dataset")
-MODEL_PATH = os.path.join(BASE_DIR, "models", "autoencoder_model.keras")
-os.makedirs(os.path.join(BASE_DIR, "models"), exist_ok=True)
+IMG_SIZE = (512, 512)
+BATCH_SIZE = 8
+STEPS = 800
+EPOCHS = 30
+DATA_PATH = "./dataset_extracted"
 
-# Dataset: Map X to X for reconstruction
-dataset = image_dataset_from_directory(
-    DATASET_PATH, image_size=(64, 64), batch_size=32, label_mode=None
-).map(lambda x: (x/255.0, x/255.0))
+# REPEAT is critical for custom steps_per_epoch
+dataset = tf.keras.utils.image_dataset_from_directory(
+    DATA_PATH,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode=None
+).map(lambda x: (x/255.0, x/255.0)).repeat().prefetch(tf.data.AUTOTUNE)
 
-# Encoder-Decoder Architecture
-encoder = models.Sequential([
-    layers.Input(shape=(64, 64, 3)),
-    layers.Conv2D(32, 3, activation='relu', padding='same'),
-    layers.MaxPooling2D(2),
-    layers.Conv2D(64, 3, activation='relu', padding='same'),
-    layers.MaxPooling2D(2)
-])
+# ACTUAL AUTOENCODER (Encoder-Decoder)
+def build_autoencoder():
+    inputs = layers.Input(shape=(512, 512, 3))
+    
+    # Encoder
+    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same', strides=2)(inputs)
+    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same', strides=2)(x)
+    
+    # Bottleneck
+    x = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(x)
+    
+    # Decoder
+    x = layers.UpSampling2D((2, 2))(x)
+    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = layers.UpSampling2D((2, 2))(x)
+    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    
+    outputs = layers.Conv2D(3, (3, 3), activation='sigmoid', padding='same')(x)
+    
+    model = models.Model(inputs, outputs)
+    model.compile(optimizer='adam', loss='mse')
+    return model
 
-decoder = models.Sequential([
-    layers.Conv2DTranspose(64, 3, strides=2, activation='relu', padding='same'),
-    layers.Conv2DTranspose(32, 3, strides=2, activation='relu', padding='same'),
-    layers.Conv2D(3, 3, activation='sigmoid', padding='same')
-])
-
-autoencoder = models.Sequential([encoder, decoder])
-autoencoder.compile(optimizer="adam", loss="mse")
-
-print("Local training of Autoencoder started...")
-autoencoder.fit(dataset, epochs=5)
-autoencoder.save(MODEL_PATH)
+model = build_autoencoder()
+print("Starting Autoencoder Training...")
+model.fit(dataset, epochs=EPOCHS, steps_per_epoch=STEPS)
+model.save("models/autoencoder_model.keras")

@@ -1,45 +1,45 @@
-import os
 import tensorflow as tf
 from tensorflow.keras import layers, models
-from tensorflow.keras.preprocessing import image_dataset_from_directory
+import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(BASE_DIR, "dataset")
-MODEL_PATH = os.path.join(BASE_DIR, "models", "vgg16_model.keras")
+# CONFIG
+IMG_SIZE = (512, 512)
+BATCH_SIZE = 4  # Lower batch for local VS Code stability
+DATA_PATH = "./dataset_extracted" 
 
-# 1. Uniform Augmentation Logic
-augmentation = tf.keras.Sequential([
-    layers.RandomFlip("horizontal_and_vertical"),
-    layers.RandomRotation(0.3),
-    layers.RandomZoom(0.2),
-    layers.RandomContrast(0.2)
-])
+# DATA LOADING
+train_ds = tf.keras.utils.image_dataset_from_directory(
+    DATA_PATH,
+    validation_split=0.2,
+    subset="training",
+    seed=123,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode='categorical'
+).map(lambda x, y: (x/255.0, y)).prefetch(tf.data.AUTOTUNE)
 
-train_ds = image_dataset_from_directory(
-    DATASET_PATH, validation_split=0.2, subset="training", seed=123,
-    image_size=(224, 224), batch_size=32
-).map(lambda x, y: (augmentation(x, training=True), y))
+# ACTUAL VGG16 ARCHITECTURE
+def build_vgg16_classifier():
+    # Load the actual VGG16 model weights from ImageNet
+    base_model = tf.keras.applications.VGG16(
+        weights='imagenet', 
+        include_top=False, 
+        input_shape=(512, 512, 3)
+    )
+    base_model.trainable = False # Keep the expert features frozen
 
-val_ds = image_dataset_from_directory(
-    DATASET_PATH, validation_split=0.2, subset="validation", seed=123,
-    image_size=(224, 224), batch_size=32
-)
+    model = models.Sequential([
+        base_model,
+        layers.GlobalAveragePooling2D(),
+        layers.Dense(512, activation='relu'),
+        layers.Dropout(0.4), # Prevents overfitting
+        layers.Dense(10, activation='softmax') # 10 Satellite Classes
+    ])
+    
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
 
-# 2. Build Fine-Tuned Model (Identical to Colab)
-base_model = tf.keras.applications.VGG16(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
-base_model.trainable = True
-for layer in base_model.layers[:-4]: # Keep last block trainable
-    layer.trainable = False
-
-x = layers.GlobalAveragePooling2D()(base_model.output)
-x = layers.Dense(512, activation="relu")(x)
-x = layers.Dropout(0.5)(x)
-output = layers.Dense(len(train_ds.class_names), activation="softmax")(x)
-
-model = models.Model(base_model.input, output)
-model.compile(optimizer=tf.keras.optimizers.Adam(1e-5), 
-              loss="sparse_categorical_crossentropy", metrics=["accuracy"])
-
-print("Starting local test training...")
-model.fit(train_ds, validation_data=val_ds, epochs=10)
-model.save(MODEL_PATH)
+model = build_vgg16_classifier()
+print("Starting VGG16 Training...")
+model.fit(train_ds, epochs=15)
+model.save("models/vgg16_model.keras")

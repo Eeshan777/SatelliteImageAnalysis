@@ -1,116 +1,92 @@
 import tensorflow as tf
 import numpy as np
-import os
-import cv2
-import uuid 
+import os, cv2, uuid
 
-# Suppress technical logs
+# Suppress TensorFlow logging for a cleaner terminal
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Model Paths
-CLASSIFIER_PATH = os.path.join(BASE_DIR, "models", "vgg16_model.keras")
-AUTOENCODER_PATH = os.path.join(BASE_DIR, "models", "autoencoder_model.keras")
-
-# --- GLOBAL MODELS ---
-# Load once at the start so the analyze function stays fast
-print("Initializing 512x512 Neural Engines...")
+# Load the VGG16 Model once globally
 try:
-    # compile=False avoids the 'Adam optimizer' mismatch warnings
-    classifier = tf.keras.models.load_model(CLASSIFIER_PATH, compile=False)
-    autoencoder = tf.keras.models.load_model(AUTOENCODER_PATH, compile=False)
-    print("Models loaded successfully.")
+    classifier = tf.keras.models.load_model(
+        os.path.join(BASE_DIR, "models", "vgg16_model.keras"), 
+        compile=False
+    )
 except Exception as e:
-    print(f"CRITICAL ERROR: Could not load models. {e}")
+    print(f"Error loading model: {e}")
     classifier = None
-    autoencoder = None
 
 def analyze(path):
-    if classifier is None or autoencoder is None:
-        return {"label": "Model Error: Not Loaded", "confidence": 0, "report": [], "seg_path": "", "recon_path": ""}
+    if classifier is None:
+        return {"label": "ERROR", "model_data": ["Model not found"], "feature_data": [], "seg_path": ""}
 
-    # 1. Load and Preprocess
+    # --- 1. IMAGE PRE-PROCESSING ---
     img_cv = cv2.imread(path)
-    if img_cv is None:
-        return {"label": "Error: File Not Found", "confidence": 0, "report": [], "seg_path": "", "recon_path": ""}
-        
     img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-    
-    # 2. MATCH NEW RESOLUTION (512x512)
-    img_resized = cv2.resize(img_rgb, (512, 512))
-    img_batch = np.expand_dims(img_resized / 255.0, 0).astype('float32')
+    # Resize for the VGG16 input (assumed 512x512 based on previous context)
+    img_batch = np.expand_dims(cv2.resize(img_rgb, (512, 512)) / 255.0, 0).astype('float32')
 
-    # 3. AUTOENCODER RECONSTRUCTION
-    reconstructed_batch = autoencoder.predict(img_batch, verbose=0)
-    recon_img = (reconstructed_batch[0] * 255).astype('uint8')
-    
-    # Save Reconstruction
-    out_dir = os.path.join(BASE_DIR, "outputs")
-    os.makedirs(out_dir, exist_ok=True)
-    recon_path = os.path.join(out_dir, f"recon_{uuid.uuid4().hex[:8]}.png")
-    cv2.imwrite(recon_path, cv2.cvtColor(recon_img, cv2.COLOR_RGB2BGR))
-
-    # 4. NEURAL CLASSIFICATION
-    # We feed the 'img_batch' (original pixels) or 'reconstructed_batch'
-    # Feeding the original resized image usually yields higher accuracy for VGG16
+    # --- 2. NEURAL DETECTION (The "AI" Report) ---
     pred = classifier.predict(img_batch, verbose=0)[0]
+    classes = [
+        "Annual Crop", "Forest", "Herbaceous Veg", "Highway", "Industrial", 
+        "Pasture", "Permanent Crop", "Residential", "River", "Sea/Lake"
+    ]
     
-    classes = ["Annual Crop", "Forest", "Herbaceous Veg", "Highway", "Industrial", 
-               "Pasture", "Permanent Crop", "Residential", "River", "Sea/Lake"]
-    
+    # Get top 3 predictions for the Model Report
+    top_indices = pred.argsort()[-3:][::-1]
+    model_report = [f"{classes[idx]}: {pred[idx]*100:.2f}%" for idx in top_indices]
     primary_label = classes[np.argmax(pred)]
-    confidence = float(np.max(pred))
 
-    # 5. SPECTRAL ANALYSIS (HSV Masking)
-    # Using 600x600 for the visual report to keep it sharp
-    overlay = cv2.resize(img_rgb, (600, 600))
-    refined = cv2.bilateralFilter(overlay, 9, 75, 75)
-    hsv = cv2.cvtColor(refined, cv2.COLOR_RGB2HSV)
+    # --- 3. SPECTRAL SEGMENTATION (The "Feature" Report) ---
+    overlay = cv2.resize(img_rgb, (800, 800))
+    # Apply Gaussian Blur to reduce noise in high-res satellite tiles
+    hsv = cv2.cvtColor(cv2.GaussianBlur(overlay, (5,5), 0), cv2.COLOR_RGB2HSV)
     
+    # Define color thresholds (Recalibrated based on your reference images)
+    # AnnualCrop_2 (Dull greens) vs Forest_4 (Deep dark greens)
     features = [
-        {"name": "Water Bodies", "color": [0, 168, 255], "l": [100, 60, 40], "u": [130, 255, 255]},
-        {"name": "Dense Forest", "color": [39, 174, 96], "l": [35, 45, 30], "u": [90, 255, 255]},
-        {"name": "Urban Structures", "color": [149, 165, 166], "l": [0, 0, 120], "u": [180, 40, 255]},
-        {"name": "Arid / Soil", "color": [230, 126, 34], "l": [10, 50, 50], "u": [25, 255, 255]}
+        {"name": "Arboreal (Forest)", "color": [0, 100, 0], "l": [35, 50, 10], "u": [85, 255, 110]},
+        {"name": "Cultivation (Crop)", "color": [173, 255, 47], "l": [20, 25, 40], "u": [45, 255, 255]},
+        {"name": "Hydrology (Water)", "color": [0, 160, 255], "l": [100, 160, 20], "u": [135, 255, 255]},
+        {"name": "Infrastructure", "color": [180, 180, 180], "l": [0, 0, 150], "u": [180, 50, 255]}
     ]
 
-    stats_dict = {}
+    feature_report = []
     kernel = np.ones((5,5), np.uint8)
 
-    for feat in features:
-        mask = cv2.inRange(hsv, np.array(feat['l']), np.array(feat['u']))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    for f in features:
+        mask = cv2.inRange(hsv, np.array(f['l']), np.array(f['u']))
+        
+        # --- LOGIC SYNC: BIAS CORRECTION ---
+        # If AI says Forest, but color mask thinks it's Water (likely shadows), erase the water mask
+        if primary_label == "Forest" and "Hydrology" in f['name']:
+            mask = cv2.erode(mask, kernel, iterations=3)
+        
+        # Clean up the mask (removing small stray pixels)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         
-        pixel_count = np.sum(mask > 0)
-        percentage = (pixel_count / (600 * 600)) * 100
-        stats_dict[feat['name']] = percentage
+        # Calculate percentage of total image
+        perc = (np.sum(mask > 0) / (800 * 800)) * 100
+        feature_report.append(f"{f['name']}: {perc:.2f}%")
         
-        if percentage > 0.5:
-            color_layer = np.full_like(overlay, feat['color'])
-            mask_bool = mask > 0
-            overlay[mask_bool] = cv2.addWeighted(overlay, 0.5, color_layer, 0.5, 0)[mask_bool]
+        # Apply color overlay to the segmented image
+        if perc > 0.3:
+            color_layer = np.full_like(overlay, f['color'])
+            overlay[mask > 0] = cv2.addWeighted(overlay, 0.65, color_layer, 0.35, 0)[mask > 0]
 
-    # 6. BIAS CORRECTION (Manual Override)
-    forest_p = stats_dict["Dense Forest"]
-    water_p = stats_dict["Water Bodies"]
-
-    if forest_p > 50 and primary_label == "Sea/Lake":
-        primary_label = "Forest (Verified)"
-    elif primary_label == "Sea/Lake" and water_p < 2:
-        primary_label = "Herbaceous Vegetation"
-
-    # 7. Save and Return Output
-    seg_path = os.path.join(out_dir, f"seg_{uuid.uuid4().hex[:8]}.png")
+    # --- 4. EXPORT OUTPUT ---
+    out_dir = os.path.join(BASE_DIR, "outputs")
+    os.makedirs(out_dir, exist_ok=True)
+    unique_id = uuid.uuid4().hex[:8]
+    seg_path = os.path.join(out_dir, f"analysis_{unique_id}.png")
+    
+    # Save as BGR for OpenCV
     cv2.imwrite(seg_path, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
-    
-    report = [f"{name}: {val:.2f}%" for name, val in stats_dict.items()]
-    
+
     return {
         "label": primary_label,
-        "confidence": confidence,
-        "report": report,
-        "seg_path": seg_path,
-        "recon_path": recon_path
+        "model_data": model_report,
+        "feature_data": feature_report,
+        "seg_path": seg_path
     }
