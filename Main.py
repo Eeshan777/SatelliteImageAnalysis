@@ -7,11 +7,20 @@ from Analyzer import analyze
 class SatIntelTerminal:
     def __init__(self, root):
         self.root = root
-        self.root.title("SatIntel Enterprise - 25-Patch Matrix Terminal")
+        self.root.title("SatIntel Enterprise - Precision Analysis Terminal")
         self.root.state('zoomed')
         self.root.configure(bg="#080808")
         self.cache = {}
         self.img_refs = {}
+        
+        # --- DARK THEME STYLE CONFIG ---
+        self.style = ttk.Style()
+        self.style.theme_use("clam")
+        self.style.configure("Treeview", background="#121212", foreground="#e0e0e0", 
+                             fieldbackground="#121212", rowheight=25, borderwidth=0)
+        self.style.configure("Treeview.Heading", background="#1a1a1a", foreground="#00ff88", borderwidth=1)
+        self.style.map("Treeview", background=[('selected', '#004433')])
+
         self.setup_ui()
 
     def setup_ui(self):
@@ -41,29 +50,32 @@ class SatIntelTerminal:
         btn_bar.pack_propagate(False)
         ttk.Button(btn_bar, text="IMPORT BATCH", command=self.import_imgs).pack(side="right", padx=20, pady=15)
 
-        # Images
+        # Image Panel
         img_p = tk.Frame(work, bg="#080808")
         img_p.pack(pady=5)
-        self.view_L = tk.Label(img_p, width=380, height=380, bg="#111", bd=1, relief="solid")
-        self.view_R = tk.Label(img_p, width=380, height=380, bg="#111", bd=1, relief="solid")
+        self.view_L = tk.Label(img_p, width=400, height=400, bg="#000", bd=1, relief="solid")
+        self.view_R = tk.Label(img_p, width=400, height=400, bg="#000", bd=1, relief="solid")
         self.view_L.pack(side="left", padx=10)
         self.view_R.pack(side="left", padx=10)
 
-        # Tables (Increased height for 25 patches)
+        # --- TABLES (ALIGNMENT FIX) ---
         table_p = tk.Frame(work, bg="#080808")
         table_p.pack(fill="both", expand=True, padx=20, pady=10)
+        table_p.columnconfigure(0, weight=1)
+        table_p.columnconfigure(1, weight=1)
 
-        # Neural Table (3 Columns)
+        # Neural Matrix
         self.tree_m = ttk.Treeview(table_p, columns=("L", "D", "C"), show="headings", height=12)
         for c, h in zip(("L", "D", "C"), ("Loc", "Detection", "Conf")):
             self.tree_m.heading(c, text=h); self.tree_m.column(c, width=100, anchor="center")
-        self.tree_m.pack(side="left", fill="both", expand=True, padx=5)
+        self.tree_m.grid(row=0, column=0, sticky="nsew", padx=5)
 
-        # Spectral Table
-        self.tree_f = ttk.Treeview(table_p, columns=("F", "P", "CLR"), show="headings", height=12)
-        self.tree_f.heading("F", text="Feature"); self.tree_f.heading("P", text="Coverage"); self.tree_f.heading("CLR", text="Key")
-        self.tree_f.column("CLR", width=50, anchor="center")
-        self.tree_f.pack(side="left", fill="both", expand=True, padx=5)
+        # Spectral Legend
+        self.tree_f = ttk.Treeview(table_p, columns=("F", "P", "K"), show="headings", height=12)
+        for c, h in zip(("F", "P", "K"), ("Feature", "Coverage", "Key")):
+            self.tree_f.heading(c, text=h)
+        self.tree_f.column("K", width=50, anchor="center")
+        self.tree_f.grid(row=0, column=1, sticky="nsew", padx=5)
 
     def import_imgs(self):
         paths = filedialog.askopenfilenames()
@@ -81,10 +93,10 @@ class SatIntelTerminal:
         if not d: return
         self.title_lbl.config(text=f"5x5 MATRIX ANALYSIS: {d['label'].upper()}")
         
-        self.img_refs['L'] = ImageTk.PhotoImage(ImageOps.fit(Image.open(p), (380, 380)))
+        self.img_refs['L'] = ImageTk.PhotoImage(ImageOps.fit(Image.open(p), (400, 400)))
         self.view_L.config(image=self.img_refs['L'])
         if os.path.exists(d['seg_path']):
-            self.img_refs['R'] = ImageTk.PhotoImage(ImageOps.fit(Image.open(d['seg_path']), (380, 380)))
+            self.img_refs['R'] = ImageTk.PhotoImage(ImageOps.fit(Image.open(d['seg_path']), (400, 400)))
             self.view_R.config(image=self.img_refs['R'])
 
         for i in self.tree_m.get_children(): self.tree_m.delete(i)
