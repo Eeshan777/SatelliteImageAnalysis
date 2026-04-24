@@ -5,6 +5,30 @@ import os,cv2,uuid,json,datetime
 from torchvision import transforms,models
 
 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+BASE_DIR=os.path.dirname(os.path.abspath(__file__))
+
+class SatelliteAutoencoder(nn.Module):
+	def __init__(self):
+		super(SatelliteAutoencoder,self).__init__()
+		self.encoder=nn.Sequential(
+			nn.Conv2d(3,32,3,padding=1),
+			nn.ReLU(),
+			nn.MaxPool2d(2,2),
+			nn.Conv2d(32,64,3,padding=1),
+			nn.ReLU(),
+			nn.MaxPool2d(2,2)
+		)
+		self.decoder=nn.Sequential(
+			nn.ConvTranspose2d(64,32,3,stride=2,padding=1,output_padding=1),
+			nn.ReLU(),
+			nn.ConvTranspose2d(32,16,3,stride=2,padding=1,output_padding=1),
+			nn.ReLU(),
+			nn.Conv2d(16,3,3,padding=1),
+			nn.Sigmoid()
+		)
+
+	def forward(self,x):
+		return self.decoder(self.encoder(x))
 
 def get_vgg16_skeleton():
 	model=models.vgg16(weights=None)
@@ -13,55 +37,10 @@ def get_vgg16_skeleton():
 		nn.Flatten(),
 		nn.Linear(512,256),
 		nn.ReLU(True),
-		nn.Dropout(),
-		nn.Linear(256,10),
+		nn.Dropout(0.5),
+		nn.Linear(256,10)
 	)
 	return model
-
-class SatelliteAutoencoder(nn.Module):
-	def __init__(self):
-		super(SatelliteAutoencoder,self).__init__()
-		self.encoder=nn.Sequential(
-			nn.Conv2d(3,32,3,padding=1),nn.ReLU(),
-			nn.MaxPool2d(2,2),
-			nn.Conv2d(32,64,3,padding=1),nn.ReLU(),
-			nn.MaxPool2d(2,2)
-		)
-		self.decoder=nn.Sequential(
-			nn.ConvTranspose2d(64,128,3,stride=2,padding=1,output_padding=1),
-			nn.ReLU(),
-			nn.ConvTranspose2d(128,192,3,stride=2,padding=1,output_padding=1),
-			nn.ReLU(),
-			nn.Conv2d(192,3,3,padding=1),
-			nn.Sigmoid()
-		)
-
-	def forward(self,x):
-		return self.decoder(self.encoder(x))
-
-BASE_DIR=os.path.dirname(os.path.abspath(__file__))
-
-def log_to_json(full_path,label,confidence):
-	output_folder=os.path.join(BASE_DIR,"outputs")
-	if not os.path.exists(output_folder):
-		os.makedirs(output_folder)
-	report_path=os.path.join(output_folder,"report.json")
-	entry={
-		"file":full_path.replace("\\","/"),
-		"label":label,
-		"domain":"Satellite Image",
-		"confidence":float(confidence),
-		"timestamp":datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-	}
-	data=[]
-	if os.path.exists(report_path):
-		with open(report_path,"r") as f:
-			try:data=json.load(f)
-			except:data=[]
-	data.append(entry)
-	with open(report_path,"w") as f:
-		json.dump(data,f,indent=4)
-	print(f"Logged to: {report_path}")
 
 FEATURE_MAP=[
 	{"name":"Annual Crop","c":[255,255,0],"l":[20,40,40],"u":[35,255,255]},
@@ -76,8 +55,33 @@ FEATURE_MAP=[
 	{"name":"Sea/Lake","c":[0,0,255],"l":[110,50,20],"u":[140,255,255]}
 ]
 
+def log_to_json(full_path,label,confidence):
+	output_folder=os.path.join(BASE_DIR,"outputs")
+	os.makedirs(output_folder,exist_ok=True)
+	report_path=os.path.join(output_folder,"report.json")
+
+	entry={
+		"file":full_path.replace("\\","/"),
+		"label":label,
+		"domain":"Satellite Image",
+		"confidence":float(confidence),
+		"timestamp":datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+	}
+
+	data=[]
+	if os.path.exists(report_path):
+		with open(report_path,"r") as f:
+			try:
+				data=json.load(f)
+			except:
+				data=[]
+	data.append(entry)
+	with open(report_path,"w") as f:
+		json.dump(data,f,indent=4)
+
 def load_pt_model(path,model_type="vgg"):
-	if not os.path.exists(path):return None
+	if not os.path.exists(path):
+		return None
 	try:
 		model=get_vgg16_skeleton() if model_type=="vgg" else SatelliteAutoencoder()
 		state_dict=torch.load(path,map_location=device,weights_only=True)
@@ -91,28 +95,41 @@ def load_pt_model(path,model_type="vgg"):
 classifier=load_pt_model(os.path.join(BASE_DIR,"models","vgg16_model.pth"),"vgg")
 autoencoder=load_pt_model(os.path.join(BASE_DIR,"models","autoencoder_model.pth"),"ae")
 
-def analyze(path):
+def analyze(path,grid_size=6):
 	img_cv=cv2.imread(path)
-	if img_cv is None:return None
+	if img_cv is None:
+		return None
 	img_rgb=cv2.cvtColor(img_cv,cv2.COLOR_BGR2RGB)
 	to_tensor=transforms.Compose([
-		transforms.ToPILImage(),transforms.Resize((512,512)),
-		transforms.ToTensor(),transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
+		transforms.ToPILImage(),
+		transforms.Resize((224,224)),
+		transforms.ToTensor(),
+		transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
 	])
 	overlay=cv2.resize(img_rgb,(800,800))
 	hsv_full=cv2.cvtColor(cv2.bilateralFilter(overlay,5,50,50),cv2.COLOR_RGB2HSV)
 	for f in FEATURE_MAP:
 		mask=cv2.inRange(hsv_full,np.array(f['l']),np.array(f['u']))
 		overlay[mask>0]=cv2.addWeighted(overlay,0.7,np.full_like(overlay,f['c']),0.3,0)[mask>0]
+	line_color=(0,0,0)
+	step=800//grid_size
+	for i in range(1,grid_size):
+		cv2.line(overlay,(i*step,0),(i*step,800),line_color,2)
+		cv2.line(overlay,(0,i*step),(800,i*step),line_color,2)
 	h,w,_=img_rgb.shape
-	ph,pw=h//5,w//5
-	patch_details,all_preds=[],[]
+	ph,pw=h//grid_size,w//grid_size
+	patch_details=[]
+	all_preds=[]
+	classes=[f['name'] for f in FEATURE_MAP]
 	with torch.no_grad():
-		for r in range(5):
-			for c in range(5):
+		for r in range(grid_size):
+			for c in range(grid_size):
 				patch=img_rgb[r*ph:(r+1)*ph,c*pw:(c+1)*pw]
+				if patch.size==0:
+					continue
 				tensor=to_tensor(patch).unsqueeze(0).to(device)
-				if autoencoder:tensor=autoencoder(tensor)
+				if autoencoder:
+					tensor=autoencoder(tensor)
 				output=classifier(tensor)
 				p_preds=torch.softmax(output,dim=1).cpu().numpy()[0]
 				all_preds.append(p_preds)
@@ -120,17 +137,21 @@ def analyze(path):
 				feats=[]
 				for f in FEATURE_MAP:
 					m=cv2.inRange(hsv_p,np.array(f['l']),np.array(f['u']))
-					cov=(np.sum(m>0)/(ph*pw))*100
-					feats.append({"name":f['name'],"cov":f"{cov:.1f}%","hex":'#%02x%02x%02x'%tuple(f['c'])})
+					cov=(np.sum(m>0)/(patch.shape[0]*patch.shape[1]))*100
+					feats.append({
+						"name":f['name'],
+						"cov":f"{cov:.1f}%",
+						"hex":'#%02x%02x%02x'%tuple(f['c'])
+					})
 				patch_details.append({
 					"loc":f"[{r+1},{c+1}]",
-					"vgg_label":[f['name'] for f in FEATURE_MAP][np.argmax(p_preds)],
+					"vgg_label":classes[np.argmax(p_preds)],
 					"vgg_conf":f"{np.max(p_preds)*100:.1f}%",
 					"features":feats
 				})
 	mean_preds=np.mean(all_preds,axis=0)
 	best_idx=np.argmax(mean_preds)
-	global_label=FEATURE_MAP[best_idx]['name']
+	global_label=classes[best_idx]
 	global_conf=mean_preds[best_idx]
 	log_to_json(path,global_label,global_conf)
 	out_path=os.path.join(BASE_DIR,"outputs",f"{uuid.uuid4().hex}.png")
